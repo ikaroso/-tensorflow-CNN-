@@ -1,0 +1,6 @@
+model_checkpoint_path: "mnist_model-50602"
+all_model_checkpoint_paths: "mnist_model-50202"
+all_model_checkpoint_paths: "mnist_model-50302"
+all_model_checkpoint_paths: "mnist_model-50402"
+all_model_checkpoint_paths: "mnist_model-50502"
+all_model_checkpoint_paths: "mnist_model-50602"
