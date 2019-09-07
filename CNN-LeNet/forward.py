@@ -51,7 +51,8 @@ def forward(x, train , regularizer): #train是为了在下面分辨要不要开�
     pool_shape=pool2.get_shape().as_list()
     nodes=pool_shape[1]*pool_shape[2]*pool_shape[3]
 
-    reshaped=tf.reshape(pool2,[pool_shape[0],nodes])#变成batch行的一维向量
+    #reshaped=tf.reshape(pool2,[pool_shape[0],nodes])#变成batch行的一维向量
+    reshaped=tf.layers.flatten(pool2)
 
     fc1_w=get_weight([nodes,FC_SIZE],regularizer)
     fc1_b=get_bias([FC_SIZE])
