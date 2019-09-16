@@ -1,5 +1,10 @@
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
+WEIGHT_DECAY=0.0001
+IMAGE_SIZE=32
+NUM_CHANNELS=3
+OUTPUT_NODE=10
+
 
 
 ResNet_demo = {
@@ -21,11 +26,13 @@ ResNet_demo = {
 
 def sampling(input,ksize=1,stride=2):
     data= input
-    if stride  >1 :
+    if stride  >1 :#什么时候会有sride=1呢
         data=slim.max_pool2d(data,ksize,stride=stride)
     return data
 
-#这个conv2d里面存在自主进行的pad0填充，暂时没懂
+'''
+我们希望的场景是，pad的多少仅仅根据kernel size来决定，比如说，kernel size是7，那么padding就是[3,3]不要改变了，多pad出来的，没用到也就不要了
+'''
 #而且在卷积时，使用了weight——decay
 def conv2d_same(input_tensor,num_outputs,kernel_size,stride,is_train = True,activation_fn=tf.nn.relu,normalizer_fn = True,scope = None):
     data = input_tensor
@@ -37,67 +44,90 @@ def conv2d_same(input_tensor,num_outputs,kernel_size,stride,is_train = True,acti
         pad_total = kernel_size - 1
         pad_beg = pad_total // 2
         pad_end = pad_total - pad_beg
+
+        #使用padding进行填充
         data = tf.pad(data,
                         [[0, 0], [pad_beg, pad_end], [pad_beg, pad_end], [0, 0]])
+
         data = slim.conv2d(inputs = data,num_outputs = num_outputs,kernel_size = kernel_size,stride = stride,
                            weights_regularizer=slim.l2_regularizer(WEIGHT_DECAY),activation_fn=None,padding='VALID',scope=scope)
 
-    print("Conv ",kernel_size, "depth = ", num_outputs, "  stride = ", stride)
+    #print("Conv ",kernel_size, "depth = ", num_outputs, "  stride = ", stride)
     if normalizer_fn:
         data = tf.layers.batch_normalization(data, training=is_train)
-        print("batch_norm")
+        #print("batch_norm")
     if activation_fn is not None:
         data = activation_fn(data)
-        print("Relu")
+
+        #print("Relu")
 
     return data
 #好像还需要设置全局的is—training
-def resblock(input,outdepth,stride):
+def resblock(input,outdepth,stride,is_train,name):
     x=input
-    conv1=slim.conv2d(input,outdepth//4,)
-    conv1=tf.layers.batch_normalization(conv1)
+    conv1=conv2d_same(input,outdepth//4,1,1,is_train,scope=name+"conv1_1x1")
+    #conv1=tf.layers.batch_normalization(conv1)
 
 
-    conv2=slim.conv2d(conv1)
-    conv2=tf.layers.batch_normalization(conv2)
+    conv2=conv2d_same(conv1,outdepth//4,3,stride,is_train,scope=name+"conv2_3x3")
+    #conv2=tf.layers.batch_normalization(conv2)
 
 
-    conv3=slim.conv2d(conv2)
-    conv3=tf.layers.batch_normalization(conv3)
+    conv3=conv2d_same(conv2,outdepth,1,1,is_train,activation_fn=None,normalizer_fn=False,scope=name+"conv3_1x1")
+    #conv3=tf.layers.batch_normalization(conv3)
+    #最后一个卷积层为什么不需要activate和normalizer
 
 
-    if  tf.shape(x).as_list(3)!=outdepth:
+    if  input.get_shape().as_list()[3]!=outdepth:
         x=slim.conv2d(x,outdepth,1,1,activation_fn=None)
-        x=tf.layers.batch_normalization(x)#应该要使用batchnormalization
+        if is_train:
+            x=tf.layers.batch_normalization(x,training=is_train)#应该要使用batchnormalization
+        else:
+            x=tf.layers.batch_normalization(x,training=is_train)#应该要使用batchnormalization
+
 
     else:
-        x=sampling(input,stride=stride) #这里的stride是外面传进来的，暂时我不知怎么用
+        x=sampling(input,stride=stride) #这里的stride是外面传进来的
 
     conv3=conv3+x
     result=tf.nn.relu(conv3)
     return result
 
-def build(x,demos):
-    conv1=slim.conv2d(x,64,7,2,'SAME',activation_fn=None)
-    maxpool1=slim.max_pool2d(conv1,3,2)
+def forward(x,demos,istrain):
+    #这里也用conv2dsame，resnet里所有的卷积层都要用这个
+    #conv1=slim.conv2d(x,64,7,2,'SAME',activation_fn=None)
+    conv1=conv2d_same(x,64,7,2,istrain,None,False,scope="conv1")#为什么这里不需要激活函数和归一化呢
+    maxpool1=slim.max_pool2d(conv1,3,2,scope="pool1")
     layer_counter=0
     resBlockResult=maxpool1
+    namex=0
+    with tf.variable_scope("resnet") as scope:
+        for demo in demos:
+            layer_counter=layer_counter+1
+            name="Layer"+str(layer_counter)
+            #print(name)
+            for i in range(demo["num_class"]):
+                if layer_counter==4:
+                    stride=1
+                else:
+                    if i==demo["num_class"]-1:
+                        stride=2
+                    else:
+                        stride=1
 
-
-    for demo in demos:
-        name="Layer"+str(layer_counter)
-        print(name)
-        for i in range(demo["num_class"]):
-            print("the  "+str(i)+" times")
-            stride=1  #stride是多少??????
-            resBlockResult=resblock(resBlockResult,int(demo["depth"]),stride)
+                #print("the  "+str(i)+" times")
+                #stride=1  #stride是多少??????
+                namex=namex+1
+                resBlockResult=resblock(resBlockResult,int(demo["depth"]),stride,istrain,str(namex))
 
     #增加一个batch normalization和一个relu
     resBlockResult=tf.layers.batch_normalization(resBlockResult)
     resBlockResult=tf.nn.relu(resBlockResult)
 
-
-    averagepool=slim.avg_pool2d(resBlockResult,2)
+    print(resBlockResult.get_shape().as_list())
+    #averagepool=slim.avg_pool2d(resBlockResult,2,scope="AVGpool")
+    averagepool=resBlockResult
+    '''我擦怎么这里会报错？？？'''
 
     data_shape = averagepool.get_shape().as_list()
 
@@ -105,7 +135,7 @@ def build(x,demos):
 
     averagepool = tf.reshape(averagepool, [-1, nodes])
 
-    fc=slim.fully_connected(averagepool,1000)
+    fc=slim.fully_connected(averagepool,1000,scope="FC")
 
     softmax=slim.softmax(fc)
 
@@ -121,3 +151,4 @@ def build(x,demos):
     data = tf.reshape(data, [-1, nodes])
 
 '''
+print("ok")
