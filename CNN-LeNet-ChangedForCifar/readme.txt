@@ -15,3 +15,8 @@ However, problems exist.
 1.DownSampling
 2.change the channles when use residual blocks  h(x)=x+f(x)
 3.How to easily use regularizer in tensorflow.
+
+
+Improvement of residual blocks
+
+1. I just add 3 residual blocks for test, after 50000 steps with batchsize of 100, using the cifar-10 dataset. The accuracy rise from 61% to 72%. A big improvement.
